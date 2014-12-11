@@ -3,6 +3,7 @@
 # Author: Ying Xiong.
 # Created: Dec 09, 2014.
 
+import matplotlib.pyplot as plt
 import numpy as np
 import theano
 import theano.tensor as T
@@ -101,3 +102,31 @@ def convolutional_mlp(learning_rate=0.1, num_epochs=200,
 
     os_utils.mkdir_p("trained-models")
     classifier.save_params("trained-models/convolutional_mlp.dat")
+
+def visualize_data_xy(data_xy, num_samples):
+    mosaic = np.zeros((28*10, 28*num_samples))
+    for i in xrange(10):
+        samples = data_xy[0][data_xy[1]==i, :]
+        for j in xrange(num_samples):
+            mosaic[i*28:(i+1)*28, j*28:(j+1)*28] = samples[j].reshape(28,28)
+    plt.imshow(mosaic, cmap="gray")
+
+def visualize_mistakes(classifier, test_data_xy, num_samples):
+    x,y = test_data_xy
+    x_sym = T.matrix('x')
+    classify = theano.function(
+        inputs = [x_sym],
+        outputs = classifier.classify(x_sym))
+    y_pred = classify(x)
+    mistakes = (y_pred != y)
+    fig = plt.figure()
+    for i in xrange(10):
+        mosaic = np.zeros((28, 28*num_samples))
+        samples = x[np.logical_and(y_pred==i, mistakes), :]
+        for j in xrange(min(num_samples, samples.shape[0])):
+            mosaic[:, j*28:(j+1)*28] = samples[j].reshape(28,28)
+        ax = fig.add_subplot(10, 1, i+1)
+        ax.imshow(mosaic, cmap="gray")
+        ax.set_ylabel(str(i))
+        ax.set_xticks([])
+        ax.set_yticks([])
