@@ -40,8 +40,6 @@ Visualize classification results on MNIST dataset.
     >>> tr_set, vl_set, te_set = load_mnist_data()
     >>> visualize_data_xy(tr_set, 20)
     >>>
-    >>> classifier = classifier = MultiLayerPerceptron(
-            dim_in=28*28, dim_out=10, dim_hidden=500,
-            rng=np.random.RandomState(0))
-    >>> classifier.load_params("trained-models/mlp.dat")
+    >>> classifier = MultiLayerPerceptron.load_from_file(
+            "trained-models/mlp.dat")
     >>> visualize_mistakes(classifier, te_set, 20)

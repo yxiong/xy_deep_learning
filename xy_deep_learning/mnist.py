@@ -38,7 +38,7 @@ def logistic_sgd(learning_rate = 0.13,
     train_model(models, num_batches, num_epochs, patience=5000)
 
     os_utils.mkdir_p("trained-models")
-    classifier.save_params("trained-models/logistic_sgd.dat")
+    classifier.save_to_file("trained-models/logistic_sgd.dat")
 
 def mlp(learning_rate = 0.01, L1_reg = 0.00, L2_reg = 0.0001, num_epochs = 1000,
         batch_size = 20, num_hidden = 500):
@@ -69,7 +69,7 @@ def mlp(learning_rate = 0.01, L1_reg = 0.00, L2_reg = 0.0001, num_epochs = 1000,
     train_model(models, num_batches, num_epochs, patience=10000)
 
     os_utils.mkdir_p("trained-models")
-    classifier.save_params("trained-models/mlp.dat")
+    classifier.save_to_file("trained-models/mlp.dat")
 
 def convolutional_mlp(learning_rate=0.1, num_epochs=200,
                     num_kernels=[20, 50], batch_size=500):
@@ -101,7 +101,7 @@ def convolutional_mlp(learning_rate=0.1, num_epochs=200,
     train_model(models, num_batches, num_epochs, patience=10000)
 
     os_utils.mkdir_p("trained-models")
-    classifier.save_params("trained-models/convolutional_mlp.dat")
+    classifier.save_to_file("trained-models/convolutional_mlp.dat")
 
 def visualize_data_xy(data_xy, num_samples):
     mosaic = np.zeros((28*10, 28*num_samples))
@@ -130,3 +130,5 @@ def visualize_mistakes(classifier, test_data_xy, num_samples):
         ax.set_ylabel(str(i))
         ax.set_xticks([])
         ax.set_yticks([])
+    error_rate = np.mean(y_pred != y) * 100
+    print "Error rate: %f %%." % error_rate
