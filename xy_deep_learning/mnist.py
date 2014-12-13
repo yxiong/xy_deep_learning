@@ -57,7 +57,7 @@ def mlp(learning_rate = 0.01, L1_reg = 0.00, L2_reg = 0.0001, num_epochs = 1000,
     y = T.ivector('y')
     rng = np.random.RandomState(1234)
     classifier = MultiLayerPerceptron(
-        dim_in=28*28, dim_out=10, dim_hidden=num_hidden, rng=rng)
+        dim_in=28*28, dim_out=10, dim_hiddens=(num_hidden,), rng=rng)
     cost = classifier.negative_log_likelihood(x, y) + \
            L1_reg * classifier.L1 + L2_reg * classifier.L2_sqr
     models, num_batches = create_minibatch_models(

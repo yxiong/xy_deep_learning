@@ -93,6 +93,8 @@ class LogisticRegression(Classifier):
                 name = 'b', borrow = True)
         self.W = W
         self.b = b
+        self.L1 = abs(self.W).sum()
+        self.L2_sqr = (self.W ** 2).sum()
         self.params = [self.W, self.b]
 
     @classmethod
@@ -133,6 +135,8 @@ class HiddenLayer(Layer):
             b = theano.shared(value=b_values, name='b', borrow=True)
         self.W = W
         self.b = b
+        self.L1 = abs(self.W).sum()
+        self.L2_sqr = (self.W ** 2).sum()
         self.params = [self.W, self.b]
         self.activation = activation
 
@@ -174,47 +178,61 @@ class HiddenLayer(Layer):
         return self.activation(T.dot(x, self.W) + self.b)
 
 class MultiLayerPerceptron(Classifier):
-    def __init__(self, dim_in, dim_out, dim_hidden=500,
-                 hiddenLayer = None, logisticRegressionLayer = None,
+    def __init__(self, dim_in, dim_out, dim_hiddens,
+                 hidden_layers = None, logistic_regression_layer = None,
                  rng=None):
+        """dim_hiddens: an array for the (output dimension) of hidden layers."""
         self.dim_in = dim_in
         self.dim_out = dim_out
-        if hiddenLayer is None:
-            hiddenLayer = HiddenLayer(
-                dim_in=dim_in, dim_out=dim_hidden, activation = T.tanh,
-                rng=rng)
-        if logisticRegressionLayer is None:
-            logisticRegressionLayer = LogisticRegression(
-                dim_in = dim_hidden, dim_out = dim_out)
-        self.hiddenLayer = hiddenLayer
-        self.logisticRegressionLayer = logisticRegressionLayer
-        self.L1 = abs(self.hiddenLayer.W).sum() + \
-                  abs(self.logisticRegressionLayer.W).sum()
-        self.L2_sqr = (self.hiddenLayer.W ** 2).sum() + \
-                      (self.logisticRegressionLayer.W ** 2).sum()
-        self.params = self.hiddenLayer.params + \
-                      self.logisticRegressionLayer.params
+        self.dim_hiddens = dim_hiddens
+        if hidden_layers is None:
+            next_dim_in = dim_in
+            hidden_layers = []
+            for i in xrange(len(dim_hiddens)):
+                hidden_layers.append(HiddenLayer(
+                    dim_in=next_dim_in, dim_out=dim_hiddens[i],
+                    activation=T.tanh, rng=rng))
+                next_dim_in = dim_hiddens[i]
+        if logistic_regression_layer is None:
+            logistic_regression_layer = LogisticRegression(
+                dim_in = next_dim_in, dim_out = dim_out)
+        self.hidden_layers = hidden_layers
+        self.logistic_regression_layer = logistic_regression_layer
+        self.L1 = sum([l.L1 for l in self.hidden_layers]) + \
+                  self.logistic_regression_layer.L1
+        self.L2_sqr = sum([l.L2_sqr for l in self.hidden_layers]) + \
+                      self.logistic_regression_layer.L2_sqr
+        self.params = sum([l.params for l in self.hidden_layers], []) + \
+                      self.logistic_regression_layer.params
 
     @classmethod
     def load_from_file_obj(cls, f):
         dim_in = cPickle.load(f)
         dim_out = cPickle.load(f)
-        hiddenLayer = HiddenLayer.load_from_file_obj(f)
-        logisticRegressionLayer = LogisticRegression.load_from_file_obj(f)
-        return cls(dim_in, dim_out,
-                   hiddenLayer=hiddenLayer,
-                   logisticRegressionLayer = logisticRegressionLayer)
+        dim_hiddens = cPickle.load(f)
+        hidden_layers = []
+        for i in xrange(len(dim_hiddens)):
+            hidden_layers.append(HiddenLayer.load_from_file_obj(f))
+        logistic_regression_layer = LogisticRegression.load_from_file_obj(f)
+        return cls(dim_in, dim_out, dim_hiddens = dim_hiddens,
+                   hidden_layers = hidden_layers,
+                   logistic_regression_layer = logistic_regression_layer)
 
     def save_to_file_obj(self, f):
         protocol = cPickle.HIGHEST_PROTOCOL
         cPickle.dump(self.dim_in, f, protocol)
         cPickle.dump(self.dim_out, f, protocol)
-        self.hiddenLayer.save_to_file_obj(f)
-        self.logisticRegressionLayer.save_to_file_obj(f)
+        cPickle.dump(self.dim_hiddens, f, protocol)
+        for hidden_layer in self.hidden_layers:
+            hidden_layer.save_to_file_obj(f)
+        self.logistic_regression_layer.save_to_file_obj(f)
 
     def p_y_given_x(self, x):
-        return self.logisticRegressionLayer.p_y_given_x(
-            self.hiddenLayer.y(x))
+        next_in = x
+        for hidden_layer in self.hidden_layers:
+            next_out = hidden_layer.y(next_in)
+            next_in = next_out
+        return self.logistic_regression_layer.p_y_given_x(next_in)
 
 class LeNetConvPoolLayer(Layer):
     def __init__(self, image_shape, filter_shape, pool_size,

@@ -26,7 +26,11 @@ Prerequisites
 Usage
 -----
 
-Run tests on MNIST handwritten digits dataset.
+Install the package in development mode:
+
+    python setup.py develop
+
+Run tests on MNIST handwritten digits dataset:
 
     >>> import mnist
     >>> mnist.logistic_sgd()
