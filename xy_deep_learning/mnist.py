@@ -87,11 +87,14 @@ def convolutional_mlp(learning_rate=0.1, num_epochs=200,
 
     # Build model.
     print "Building model..."
-    dim_in = (batch_size, 1, 28, 28)
-    classifier = LeNet5(
+    dim_in = (1, 28, 28)
+    classifier = LeNet(
         dim_in = dim_in,
         dim_out = 10,
-        num_kernels = num_kernels,
+        batch_size = batch_size,
+        dim_convs = [(num_kernels[0], 5, 5), (num_kernels[1], 5, 5)],
+        dim_pools = [(2,2), (2,2)],
+        dim_hiddens = (500,),
         rng = rng)
     models, num_batches = create_minibatch_models(
         classifier, datasets, batch_size, learning_rate)
@@ -113,11 +116,7 @@ def visualize_data_xy(data_xy, num_samples):
 
 def visualize_mistakes(classifier, test_data_xy, num_samples):
     x,y = test_data_xy
-    x_sym = T.matrix('x')
-    classify = theano.function(
-        inputs = [x_sym],
-        outputs = classifier.classify(x_sym))
-    y_pred = classify(x)
+    y_pred = classifier.classify_data(x)
     mistakes = (y_pred != y)
     fig = plt.figure()
     for i in xrange(10):

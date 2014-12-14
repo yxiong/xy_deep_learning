@@ -67,6 +67,15 @@ class Classifier(FileIOBase):
         """Compute 0-1 errors."""
         return T.mean(T.neq(self.classify(x), y))
 
+    def classify_data(self, x_data):
+        """Classify data `x`."""
+        if not hasattr(self, "classify_fcn"):
+            x = T.matrix('x')
+            self.classify_fcn = theano.function(
+                inputs = [x],
+                outputs = self.classify(x))
+        return self.classify_fcn(x_data)
+
 class Layer(FileIOBase):
     """Base class for all layers."""
     __metaclass__ = abc.ABCMeta
@@ -247,6 +256,9 @@ class LeNetConvPoolLayer(Layer):
         self.image_shape = image_shape
         self.filter_shape = filter_shape
         self.pool_size = pool_size
+        self.dim_out = [image_shape[0], filter_shape[0],
+                        (image_shape[2]-filter_shape[2]+1) / pool_size[0],
+                        (image_shape[3]-filter_shape[3]+1) / pool_size[1]]
 
         if W is None:
             fan_in = np.prod(filter_shape[1:])
@@ -291,68 +303,101 @@ class LeNetConvPoolLayer(Layer):
             input=conv_out, ds=self.pool_size, ignore_border=True)
         return T.tanh(pooled_out + self.b.dimshuffle('x', 0, 'x', 'x'))
 
-class LeNet5(Classifier):
-    # NOTE: the current classifier only work on batch data.
-    def __init__(self, dim_in, dim_out, num_kernels=[20,50], layers=None,
-                 rng=None):
+class LeNet(Classifier):
+    def __init__(self, dim_in, dim_out, batch_size,
+                 dim_convs, dim_pools, dim_hiddens,
+                 conv_pool_layers=None, multi_layer_perceptron=None, rng=None):
         """
-        dim_in = (batch_size, num_x_channels, x_height, x_width)
-        num_kernels = (num_kernels0, num_kernels1)
+        dim_in: 3-tuple of form (num_channels, height, width)
+        dim_convs: a list of 3-tuples of form
+                   (num_kernels, filter_height, filter_width)
+        dim_pools: a list of 2-tuples of form (pool_width, pool_height).
+        dim_hiddens: a list of integers for output dimension of hidden layers.
         """
         self.dim_in = dim_in
         self.dim_out = dim_out
-
-        if layers is None:
-            self.layer0 = LeNetConvPoolLayer(
-                filter_shape = (num_kernels[0], 1, 5, 5),
-                image_shape = dim_in,
-                pool_size = (2, 2),
-                rng = rng)
-            layer1_dim_in = (dim_in[0], num_kernels[0],
-                             (dim_in[2]-5+1)/2, (dim_in[2]-5+1)/2)
-            self.layer1 = LeNetConvPoolLayer(
-                filter_shape = (num_kernels[1], num_kernels[0], 5, 5),
-                image_shape = layer1_dim_in,
-                pool_size = (2, 2),
-                rng = rng)
-            self.layer2 = HiddenLayer(
-                dim_in = num_kernels[1] * 4 * 4,
-                dim_out = 500,
-                activation = T.tanh,
-                rng = rng)
-            self.layer3 = LogisticRegression(
-                dim_in = 500,
-                dim_out = 10)
-        else:
-            self.layer0, self.layer1, self.layer2, self.layer3 = layers
-        self.params = self.layer0.params + self.layer1.params + \
-                      self.layer2.params + self.layer3.params
+        self.batch_size = batch_size
+        self.dim_convs = dim_convs
+        self.dim_pools = dim_pools
+        self.dim_hiddens = dim_hiddens
+        if conv_pool_layers is None:
+            conv_pool_layers = []
+            next_dim_in = [batch_size, dim_in[0], dim_in[1], dim_in[2]]
+            for dim_conv, dim_pool in zip(dim_convs, dim_pools):
+                filter_shape = (dim_conv[0], next_dim_in[1],
+                                dim_conv[1], dim_conv[2])
+                conv_pool_layers.append(LeNetConvPoolLayer(
+                    filter_shape = filter_shape,
+                    image_shape = next_dim_in,
+                    pool_size = dim_pool,
+                    rng = rng))
+                next_dim_in = conv_pool_layers[-1].dim_out
+        if multi_layer_perceptron is None:
+            multi_layer_perceptron = MultiLayerPerceptron(
+                dim_in = next_dim_in[1] * next_dim_in[2] * next_dim_in[3],
+                dim_out = dim_out, dim_hiddens = dim_hiddens, rng=rng)
+        self.conv_pool_layers = conv_pool_layers
+        self.multi_layer_perceptron = multi_layer_perceptron
+        self.params = sum([l.params for l in self.conv_pool_layers], []) + \
+                      self.multi_layer_perceptron.params
 
     @classmethod
     def load_from_file_obj(cls, f):
         dim_in = cPickle.load(f)
         dim_out = cPickle.load(f)
-        layer0 = LeNetConvPoolLayer.load_from_file_obj(f)
-        layer1 = LeNetConvPoolLayer.load_from_file_obj(f)
-        layer2 = HiddenLayer.load_from_file_obj(f)
-        layer3 = LogisticRegression.load_from_file_obj(f)
-        return LeNet5(dim_in, dim_out,
-                      layers=(layer0, layer1, layer2, layer3))
+        batch_size = cPickle.load(f)
+        dim_convs = cPickle.load(f)
+        dim_pools = cPickle.load(f)
+        dim_hiddens = cPickle.load(f)
+        conv_pool_layers = []
+        for i in xrange(len(dim_convs)):
+            conv_pool_layers.append(LeNetConvPoolLayer.load_from_file_obj(f))
+        multi_layer_perceptron = MultiLayerPerceptron.load_from_file_obj(f)
+        return cls(dim_in, dim_out, batch_size,
+                   dim_convs, dim_pools, dim_hiddens,
+                   conv_pool_layers = conv_pool_layers,
+                   multi_layer_perceptron = multi_layer_perceptron)
 
     def save_to_file_obj(self, f):
         protocol = cPickle.HIGHEST_PROTOCOL
         cPickle.dump(self.dim_in, f, protocol)
         cPickle.dump(self.dim_out, f, protocol)
-        self.layer0.save_to_file_obj(f)
-        self.layer1.save_to_file_obj(f)
-        self.layer2.save_to_file_obj(f)
-        self.layer3.save_to_file_obj(f)
+        cPickle.dump(self.batch_size, f, protocol)
+        cPickle.dump(self.dim_convs, f, protocol)
+        cPickle.dump(self.dim_pools, f, protocol)
+        cPickle.dump(self.dim_hiddens, f, protocol)
+        for conv_pool_layer in self.conv_pool_layers:
+            conv_pool_layer.save_to_file_obj(f)
+        self.multi_layer_perceptron.save_to_file_obj(f)
 
     def p_y_given_x(self, x):
-        return self.layer3.p_y_given_x(
-            self.layer2.y(
-                self.layer1.y(
-                    self.layer0.y(x.reshape(self.dim_in))
-                ).flatten(2)
-            )
-        )
+        next_in = x.reshape((self.batch_size, self.dim_in[0],
+                             self.dim_in[1], self.dim_in[2]))
+        for conv_pool_layer in self.conv_pool_layers:
+            next_out = conv_pool_layer.y(next_in)
+            next_in = next_out
+        return self.multi_layer_perceptron.p_y_given_x(next_in.flatten(2))
+
+    def classify_data(self, x_data):
+        """We need to override this function because the symbolic `classify` only
+        works on batch data."""
+        if not hasattr(self, "classify_fcn"):
+            x = T.matrix('x')
+            self.classify_fcn = theano.function(
+                inputs = [x],
+                outputs = self.classify(x))
+        # Process full batches.
+        num_batches = x_data.shape[0] / self.batch_size
+        y_batches = []
+        for index in xrange(num_batches):
+            y_batches.append(self.classify_fcn(x_data[
+                index * self.batch_size : (index+1) * self.batch_size]))
+        # Process remaining data that does not make a full batch.
+        if x_data.shape[0] % self.batch_size > 0:
+            data = x_data[num_batches * self.batch_size:, :]
+            num_pad = self.batch_size - data.shape[0]
+            pad = np.zeros((num_pad, x_data.shape[1]),
+                           dtype=theano.config.floatX)
+            x_batch = np.vstack((data, pad))
+            y_batches.append(self.classify_fcn(x_batch)[:data.shape[0]])
+        return np.concatenate(y_batches)
