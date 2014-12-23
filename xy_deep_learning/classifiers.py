@@ -126,18 +126,33 @@ class LogisticRegression(Classifier):
 
 class HiddenLayer(Layer):
     def __init__(self, dim_in, dim_out, W=None, b=None,
-                 activation=T.tanh, rng=None):
+                 activation_str="tanh", rng=None):
         self.dim_in = dim_in
         self.dim_out = dim_out
+        self.activation_str = activation_str
+        self.activation = HiddenLayer.activation_from_str(activation_str)
         if W is None:
-            W_values = np.asarray(
-                rng.uniform(
-                    low = -math.sqrt(6. / (dim_in + dim_out)),
-                    high = math.sqrt(6. / (dim_in + dim_out)),
-                    size = (dim_in, dim_out)),
-                dtype = theano.config.floatX)
-            if activation == theano.tensor.nnet.sigmoid:
-                W_values *= 4
+            if activation_str == "tanh":
+                W_values = np.asarray(
+                    rng.uniform(
+                        low = -math.sqrt(6. / (dim_in + dim_out)),
+                        high = math.sqrt(6. / (dim_in + dim_out)),
+                        size = (dim_in, dim_out)),
+                    dtype = theano.config.floatX)
+            elif activation_str == "sigmoid":
+                W_values = np.asarray(
+                    rng.uniform(
+                        low = -4*math.sqrt(6. / (dim_in + dim_out)),
+                        high = 4*math.sqrt(6. / (dim_in + dim_out)),
+                        size = (dim_in, dim_out)),
+                    dtype = theano.config.floatX)
+            elif activation_str == "relu":
+                W_values = np.asarray(
+                    rng.randn(dim_in, dim_out) * 0.01,
+                    dtype = theano.config.floatX)
+            else:
+                raise Exception("Unknown activation string '%s'." % \
+                                activation_str)
             W = theano.shared(value = W_values, name='W', borrow=True)
         if b is None:
             b_values = np.zeros((dim_out,), dtype=theano.config.floatX)
@@ -147,7 +162,6 @@ class HiddenLayer(Layer):
         self.L1 = abs(self.W).sum()
         self.L2_sqr = (self.W ** 2).sum()
         self.params = [self.W, self.b]
-        self.activation = activation
 
     @classmethod
     def load_from_file_obj(cls, f):
@@ -155,8 +169,9 @@ class HiddenLayer(Layer):
         dim_out = cPickle.load(f)
         W = theano.shared(cPickle.load(f), name='W', borrow=True)
         b = theano.shared(cPickle.load(f), name='b', borrow=True)
-        activation = cls.activation_from_str(cPickle.load(f))
-        return cls(dim_in, dim_out, W=W, b=b, activation=activation)
+        activation_str = cPickle.load(f)
+        return cls(dim_in, dim_out, W=W, b=b,
+                   activation_str=activation_str)
 
     @classmethod
     def activation_from_str(cls, activation_str):
@@ -164,8 +179,10 @@ class HiddenLayer(Layer):
             return T.tanh
         elif activation_str == "sigmoid":
             return T.nnet.sigmoid
+        elif activation_str == "relu":
+            return lambda x: x * (x > 0)
         else:
-            raise Exception("Unknown activation string.")
+            raise Exception("Unknown activation string '%s'." % activation_str)
 
     def save_to_file_obj(self, f):
         protocol = cPickle.HIGHEST_PROTOCOL
@@ -173,15 +190,7 @@ class HiddenLayer(Layer):
         cPickle.dump(self.dim_out, f, protocol)
         cPickle.dump(self.W.get_value(borrow=True), f, protocol)
         cPickle.dump(self.b.get_value(borrow=True), f, protocol)
-        cPickle.dump(self.activation_str(), f, protocol)
-
-    def activation_str(self):
-        if self.activation == T.tanh:
-            return "tanh"
-        elif self.activation == T.nnet.sigmoid:
-            return "sigmoid"
-        else:
-            raise Exception("Unknown activation type.")
+        cPickle.dump(self.activation_str, f, protocol)
 
     def y(self, x):
         return self.activation(T.dot(x, self.W) + self.b)
@@ -189,7 +198,7 @@ class HiddenLayer(Layer):
 class MultiLayerPerceptron(Classifier):
     def __init__(self, dim_in, dim_out, dim_hiddens,
                  hidden_layers = None, logistic_regression_layer = None,
-                 rng=None):
+                 activation_str = "tanh", rng=None):
         """dim_hiddens: an array for the (output dimension) of hidden layers."""
         self.dim_in = dim_in
         self.dim_out = dim_out
@@ -200,7 +209,7 @@ class MultiLayerPerceptron(Classifier):
             for i in xrange(len(dim_hiddens)):
                 hidden_layers.append(HiddenLayer(
                     dim_in=next_dim_in, dim_out=dim_hiddens[i],
-                    activation=T.tanh, rng=rng))
+                    activation_str=activation_str, rng=rng))
                 next_dim_in = dim_hiddens[i]
         if logistic_regression_layer is None:
             logistic_regression_layer = LogisticRegression(
@@ -243,7 +252,7 @@ class MultiLayerPerceptron(Classifier):
             next_in = next_out
         return self.logistic_regression_layer.p_y_given_x(next_in)
 
-class LeNetConvPoolLayer(Layer):
+class ConvPoolLayer(Layer):
     def __init__(self, image_shape, filter_shape, pool_size,
                  W = None, b = None, rng=None):
         """
@@ -303,12 +312,16 @@ class LeNetConvPoolLayer(Layer):
             input=conv_out, ds=self.pool_size, ignore_border=True)
         return T.tanh(pooled_out + self.b.dimshuffle('x', 0, 'x', 'x'))
 
-class LeNet(Classifier):
+class ConvNeuralNet(Classifier):
     def __init__(self, dim_in, dim_out, batch_size,
-                 dim_convs, dim_pools, dim_hiddens,
+                 dim_convs, dim_pools, dim_hiddens, activation_str="tanh",
                  conv_pool_layers=None, multi_layer_perceptron=None, rng=None):
         """
         dim_in: 3-tuple of form (num_channels, height, width)
+                Note that the input to ConvNeuralNet should be adjusted
+                accordingly. For a given input image patch `p` of shape (height,
+                width, num_channels), it should be resized as
+                `np.rollaxis(p,2).flatten()`.
         dim_convs: a list of 3-tuples of form
                    (num_kernels, filter_height, filter_width)
         dim_pools: a list of 2-tuples of form (pool_width, pool_height).
@@ -326,7 +339,7 @@ class LeNet(Classifier):
             for dim_conv, dim_pool in zip(dim_convs, dim_pools):
                 filter_shape = (dim_conv[0], next_dim_in[1],
                                 dim_conv[1], dim_conv[2])
-                conv_pool_layers.append(LeNetConvPoolLayer(
+                conv_pool_layers.append(ConvPoolLayer(
                     filter_shape = filter_shape,
                     image_shape = next_dim_in,
                     pool_size = dim_pool,
@@ -335,7 +348,8 @@ class LeNet(Classifier):
         if multi_layer_perceptron is None:
             multi_layer_perceptron = MultiLayerPerceptron(
                 dim_in = next_dim_in[1] * next_dim_in[2] * next_dim_in[3],
-                dim_out = dim_out, dim_hiddens = dim_hiddens, rng=rng)
+                dim_out = dim_out, dim_hiddens = dim_hiddens,
+                activation_str=activation_str, rng=rng)
         self.conv_pool_layers = conv_pool_layers
         self.multi_layer_perceptron = multi_layer_perceptron
         self.params = sum([l.params for l in self.conv_pool_layers], []) + \
@@ -351,7 +365,7 @@ class LeNet(Classifier):
         dim_hiddens = cPickle.load(f)
         conv_pool_layers = []
         for i in xrange(len(dim_convs)):
-            conv_pool_layers.append(LeNetConvPoolLayer.load_from_file_obj(f))
+            conv_pool_layers.append(ConvPoolLayer.load_from_file_obj(f))
         multi_layer_perceptron = MultiLayerPerceptron.load_from_file_obj(f)
         return cls(dim_in, dim_out, batch_size,
                    dim_convs, dim_pools, dim_hiddens,

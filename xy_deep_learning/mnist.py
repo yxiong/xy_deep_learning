@@ -41,7 +41,7 @@ def logistic_sgd(learning_rate = 0.13,
     classifier.save_to_file("trained-models/logistic_sgd.dat")
 
 def mlp(learning_rate = 0.01, L1_reg = 0.00, L2_reg = 0.0001, num_epochs = 1000,
-        batch_size = 20, num_hidden = 500):
+        batch_size = 20, num_hidden = 500, activation_str = "tanh"):
     """Multi-layer perceptron.
 
     Should yield the same results as 'DeepLearningTutorial/code/mlp.py'.
@@ -57,7 +57,8 @@ def mlp(learning_rate = 0.01, L1_reg = 0.00, L2_reg = 0.0001, num_epochs = 1000,
     y = T.ivector('y')
     rng = np.random.RandomState(1234)
     classifier = MultiLayerPerceptron(
-        dim_in=28*28, dim_out=10, dim_hiddens=(num_hidden,), rng=rng)
+        dim_in=28*28, dim_out=10, dim_hiddens=(num_hidden,),
+        activation_str=activation_str, rng=rng)
     cost = classifier.negative_log_likelihood(x, y) + \
            L1_reg * classifier.L1 + L2_reg * classifier.L2_sqr
     models, num_batches = create_minibatch_models(
@@ -72,8 +73,9 @@ def mlp(learning_rate = 0.01, L1_reg = 0.00, L2_reg = 0.0001, num_epochs = 1000,
     classifier.save_to_file("trained-models/mlp.dat")
 
 def convolutional_mlp(learning_rate=0.1, num_epochs=200,
-                    num_kernels=[20, 50], batch_size=500):
-    """LeNet5 convolutional neural network.
+                      num_kernels=[20, 50], batch_size=500,
+                      activation_str="tanh"):
+    """LeNet-5 convolutional neural network.
 
     Should yield the same results as
     'DeepLearningTutorial/code/convolutional_mlp.py'.
@@ -88,13 +90,14 @@ def convolutional_mlp(learning_rate=0.1, num_epochs=200,
     # Build model.
     print "Building model..."
     dim_in = (1, 28, 28)
-    classifier = LeNet(
+    classifier = ConvNeuralNet(
         dim_in = dim_in,
         dim_out = 10,
         batch_size = batch_size,
         dim_convs = [(num_kernels[0], 5, 5), (num_kernels[1], 5, 5)],
         dim_pools = [(2,2), (2,2)],
         dim_hiddens = (500,),
+        activation_str = activation_str,
         rng = rng)
     models, num_batches = create_minibatch_models(
         classifier, datasets, batch_size, learning_rate)
